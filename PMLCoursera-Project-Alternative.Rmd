@@ -96,27 +96,29 @@ plot(c(1:18), accurate, type="b", las=1, col="blue",
 ```
 
 
-From the plot, we observe that the sensitivity goes toward 100% around 5 variables, with a littl dip at 6, and then up again after that. Based on that, we'll consider 10 as the minimal number of variables to use in the model.
+From the plot, we observe that the sensitivity goes toward 100% around 5 variables, with a little dip at 6, and then up again after that. Based on that, we'll consider 10 as the minimal number of variables to use in the model.
 
 ###Model - final choice
-Let's build a Random Forests model with the first 10 variables in the order of Gini index importance:
+Let's build a Random Forests model with the first 10 variables in the order of Gini index importance. 
 ```{r, cache=TRUE}
 trainTemp = training[ , c(names(indexedByGini[1:10]), "classe")]
-##modelFit <- randomForest(classe ~ ., data = trainTemp, importance=TRUE)
-modelFitT<-train(classe~., data=trainTemp, method = "rf", importance = TRUE)
+modelFit <- randomForest(classe ~ ., data = trainTemp, importance=TRUE)
+```
+
+Variables used:
+```{r}
+names(importance(modelFit)[,"MeanDecreaseGini"])
 ```
 
 Our model's statistics:
 ```{r}
-pred<-predict(modelFitT, newdata=trainTemp)
+pred<-predict(modelFit, newdata=trainTemp)
 confusionMatrix(pred, trainTemp$classe)
 ```
 
 And a view of our model:
 ```{r}
-print(modelFitT$finalModel)
-fancyRpartPlot(modelFitT$finalModel)
-
+print(modelFit)
 ```
 
 ###Out of Sample Errors
@@ -131,7 +133,7 @@ errorRate
 Finally, we perform the verification on the test set (which went through the same data transformations we applied to the training data set):
 ```{r}
 testTemp = testing[ , c(names(indexedByGini[1:10]), "classe")]
-predTest <- predict(modelFitT, newdata=testTemp)
+predTest <- predict(modelFit, newdata=testTemp)
 predTest
 ```
 The results were verified with the submission part of the asignment and passed 100%.
