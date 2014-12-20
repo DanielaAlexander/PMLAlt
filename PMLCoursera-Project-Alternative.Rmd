@@ -1,0 +1,139 @@
+---
+title: "PML Coursera-Project"
+author: "Daniela Alexander"
+date: "Thursday, December 18, 2014"
+output: html_document
+---
+##Executive Summary
+The project aims to predict the manner in which a series of subjects (more precisely six) performed physical activities via data collected by their wearable devices.  
+The classification model used is based on data from a relatively large training set with 19622 observations and 160 variables. Through the process of covariates reduction, the final model is a Random Forests model with 36 variables as predictors and with 100% success on the testing set. We're hinting that the number of variables could be reduced even more, but we're comfortable with the chosen number and the quality of the model.
+
+##Data Analysis
+
+Information about the data set, the purpose of the experiment and lots of other detals is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+###Data 
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+```{r, message = FALSE}
+library(caret)
+library(rpart)
+library(randomForest)
+library(rattle)
+```
+Let's get the data from the appropriate files:
+```{r, cache=TRUE, message=TRUE}
+training <- read.csv("pml-training.csv")
+testing<-read.csv("pml-testing.csv")
+dim(training); dim(testing)
+```
+Training set has 19622 observations and 160 variables; Test set has 20 observations and 160 variables.
+ 
+###Data transformation and reducing the number of variables used in the model
+
+According to the information of the experiment, the first 7 columns of the data sets are irrelevant for our model, therefore we will remove them from the data sets (remember all data transformations must be applied to both training and testing data sets).
+```{r}
+training<-training[, -c(1:7)]
+testing<-testing[, -c(1:7)]
+```
+
+Getting getting rid of other irrelevant variables = zero covariates, by applying near zero variables method:
+```{r}
+set.seed(1969)
+nzvv <- nearZeroVar(testing)
+training<-training[, -nzvv]
+testing<-testing[, -nzvv]
+```
+
+There is a column difference between test and train; train has classe, test has problem\_id. We'll get rid of problem_id in test in add classe, so the 2 data sets have an identical set of variables.
+```{r}
+testing$problem_id <- NULL
+testing$classe<- c(rep("A",20))
+##transforming classe into a factor class for uniformity with the training set
+testing$classe <- as.factor(testing$classe)
+```
+
+
+##Prediction Model
+Our goal is to work through a set of Random Forests models and try to reduce the number of variables to what would be a minimal set. We're starting the modeling with a relatively  high number of variables (columns = `r dim(training)[2]`).
+
+###Model Building and Cross-validation
+
+```{r, cache = TRUE}
+modFit <-  randomForest(classe ~ ., data = training, importance = TRUE)
+predTrain <- predict(modFit, newdata=training, type = "class")
+confusionMatrix(predTrain, training$classe)$overall[1]
+```
+
+Accuracy on this model is 1, very good, so in theory we could stop here. Let's advance a bit more in reducing the number of variables though. Let's start by ordering the important variables by Gini index value and then trying various models with different numbers of variables to find the minimal boundary where the Accuracy becomes 1 (which would give us the minimal number of variables to use in the model).
+
+```{r}
+importantVariables <- importance(modFit)
+summary(importantVariables[,"MeanDecreaseGini"])
+```
+
+We can see a lot of variance among the predictors. Looping through various models (with variables from 2 to 1/2 * our current number of variables):
+```{r, cache=TRUE}
+indexedByGini<-importantVariables[order(importantVariables[,"MeanDecreaseGini"],decreasing=TRUE),"MeanDecreaseGini"]
+accurate<-rep(0, 18)
+for (i in c(1:18)) {
+    trainData <- training[, c(names(indexedByGini[1:i+1]), "classe")]
+    trialModel <- randomForest(classe ~ ., data = trainData, importance=TRUE)
+    trialPrediction <- predict(trialModel, newdata = trainData, type ="class")
+    accurate[i] <- confusionMatrix(trialPrediction, trainData$classe)$overall[1]
+}
+```
+```{r}
+plot(c(1:18), accurate, type="b", las=1, col="blue",
+     xlab="Number of Variables", ylab="Accuracy", main="Random Forest")
+```
+
+
+From the plot, we observe that the sensitivity goes toward 100% around 5 variables, with a littl dip at 6, and then up again after that. Based on that, we'll consider 10 as the minimal number of variables to use in the model.
+
+###Model - final choice
+Let's build a Random Forests model with the first 10 variables in the order of Gini index importance:
+```{r, cache=TRUE}
+trainTemp = training[ , c(names(indexedByGini[1:10]), "classe")]
+##modelFit <- randomForest(classe ~ ., data = trainTemp, importance=TRUE)
+modelFitT<-train(classe~., data=trainTemp, method = "rf", importance = TRUE)
+```
+
+Our model's statistics:
+```{r}
+pred<-predict(modelFitT, newdata=trainTemp)
+confusionMatrix(pred, trainTemp$classe)
+```
+
+And a view of our model:
+```{r}
+print(modelFitT$finalModel)
+fancyRpartPlot(modelFitT$finalModel)
+
+```
+
+###Out of Sample Errors
+We expect the error of our model to be close to 0. Let's calculate the Out of Sample Error Rate for our model and see if that's true:
+```{r}
+confTable<-confusionMatrix(pred,trainTemp$classe)
+errorRate<-1-sum(diag(confTable$table))/sum(confTable$table)
+errorRate
+```
+
+###Verification of our model
+Finally, we perform the verification on the test set (which went through the same data transformations we applied to the training data set):
+```{r}
+testTemp = testing[ , c(names(indexedByGini[1:10]), "classe")]
+predTest <- predict(modelFitT, newdata=testTemp)
+predTest
+```
+The results were verified with the submission part of the asignment and passed 100%.
+
+
